@@ -542,6 +542,8 @@ class BaseMultiModalItemTracker(ABC, Generic[_T]):
                 return "<start_of_image>"
             if model_type == "kimi_vl":
                 return "<|media_start|>image<|media_content|><|media_pad|><|media_end|>" # noqa: E501
+            if model_type == "ernie4_5_moe_vl":
+                return "<|IMAGE_START|><|image@placeholder|><|IMAGE_END|>"
 
             raise TypeError(f"Unknown {modality} model type: {model_type}")
         elif modality == "audio":
@@ -564,6 +566,8 @@ class BaseMultiModalItemTracker(ABC, Generic[_T]):
                 return "<|vision_start|><|VIDEO|><|vision_end|>"
             if model_type in ("minicpmo", "minicpmv"):
                 return "(<video>./</video>)"
+            if model_type == "ernie4_5_moe_vl":
+                return "<|VIDEO_START|><|video@placeholder|><|VIDEO_END|>"
             if model_type.startswith("llava"):
                 return self._cached_token_str(self._tokenizer,
                                               hf_config.video_token_index)
