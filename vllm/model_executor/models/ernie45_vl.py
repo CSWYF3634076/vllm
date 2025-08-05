@@ -13,8 +13,6 @@ import torch.nn.functional as F
 from torch import nn
 from transformers import AutoProcessor
 from transformers import BatchFeature
-from transformers import PretrainedConfig
-# from transformers.models.ernie4_5_moe_vl import Ernie_45T_VLProcessor
 from vllm.transformers_utils.processors.ernie45_vl import Ernie_45T_VLProcessor, Ernie_45T_VLImageProcessor, smart_resize
 
 
@@ -137,10 +135,6 @@ class Ernie4_5_VLVideoEmbeddingInputs(TypedDict):
     """
 
 
-Qwen2VLVideoInputs = Union[Ernie4_5_VLVideoPixelInputs,
-                           Ernie4_5_VLVideoEmbeddingInputs]
-
-# 视频输入和图片输入相同
 Ernie4_5_VLVideoInputs = Union[Ernie4_5_VLImagePixelInputs,
                            Ernie4_5_VLImageEmbeddingInputs]
 
@@ -247,16 +241,8 @@ class VariableResolutionResamplerModel(nn.Module):
         x = x.reshape([-1, C * (spatial_conv_size ** 2)])
         return x
 
-    # def forward(self, x, image_mask, token_type_ids, image_type_ids, grid_thw):
     def forward(self, x, grid_thw):
-        """
-        x: image_features
-        image_mask: [B]
-        token_types_ids: [B]
-        image_type_ids:  [B_image]
-        grid_thw: [B_image, 3]
-        """
-        # assert image_type_ids is not None
+
 
         def fwd_spatial(x):
             """
@@ -489,10 +475,6 @@ class Ernie4_5_VLProcessingInfo(BaseProcessingInfo):
         else:
             preprocessed_size = ImageSize(width=image_width,
                                           height=image_height)
-        # TODO 修改为ernie实现
-        # NOTE: Frames are padded to be divisible by `temporal_patch_size`
-        # https://github.com/huggingface/transformers/blob/v4.48.3/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py#L294
-        # padded_num_frames = num_frames + num_frames % temporal_patch_size
 
         grid_t = max(num_frames // temporal_conv_size, 1)
         grid_h = preprocessed_size.height // patch_size
@@ -634,7 +616,6 @@ class Ernie4_5VLMultiModalProcessor(BaseMultiModalProcessor[Ernie4_5_VLProcessin
             return tokenizer_output
         
         images_len = len(mm_data.get("images", []))
-        # logger.info(f"  call_hf_processor 的 prompt= {prompt} len(images)={images_len}")
         
         processor_output = self.info.ctx.call_hf_processor(
             self.info.get_hf_processor(**mm_kwargs),
@@ -670,38 +651,6 @@ class Ernie4_5VLMultiModalProcessor(BaseMultiModalProcessor[Ernie4_5_VLProcessin
 
 
         return processor_output
-
-
-
-    # def _cached_apply_hf_processor(
-    #         self,
-    #         prompt: Union[str, list[int]],
-    #         mm_data_items: MultiModalDataItems,
-    #         hf_processor_mm_kwargs: Mapping[str, object],
-    #         *,
-    #         return_mm_hashes: bool,
-    # ) -> tuple[list[int], MultiModalKwargs, Optional[dict], bool]:
-
-    #     if mm_data_items.get_count("image", strict=False) > 1:
-    #         return self._apply_hf_processor(
-    #             prompt=prompt,
-    #             mm_data_items=mm_data_items,
-    #             hf_processor_mm_kwargs=hf_processor_mm_kwargs,
-    #             return_mm_hashes=return_mm_hashes,
-    #         )
-    #     (
-    #         prompt_ids,
-    #         mm_kwargs,
-    #         mm_hashes,
-    #         _,
-    #     ) = super()._cached_apply_hf_processor(
-    #         prompt=prompt,
-    #         mm_data_items=mm_data_items,
-    #         hf_processor_mm_kwargs=hf_processor_mm_kwargs,
-    #         return_mm_hashes=True,
-    #     )
-
-    #     return prompt_ids, mm_kwargs, mm_hashes, False
 
 
     def _get_prompt_updates(
@@ -769,19 +718,10 @@ class Ernie4_5VLMultiModalProcessor(BaseMultiModalProcessor[Ernie4_5_VLProcessin
                 pixel_values=MultiModalFieldConfig.flat_from_sizes(
                     "image", image_grid_sizes),
                 image_grid_thw=MultiModalFieldConfig.batched("image"),
-                # position_ids=MultiModalFieldConfig.batched("image"),
 
-                # image_type_ids=MultiModalFieldConfig.batched("video"),
-                # input_ids=MultiModalFieldConfig.batched("image"),
-                # token_type_ids=MultiModalFieldConfig.batched("image"),
-
-                # ernie45 vl 模型将视频处理成了图片，这里是无效的，仅仅为了过vllm的校验，视频在上面的image中
                 pixel_values_videos=MultiModalFieldConfig.flat_from_sizes(
                     "video", video_grid_sizes),
-                # video_embeds=MultiModalFieldConfig.flat_from_sizes(
-                #     "video", video_grid_sizes),
                 video_grid_thw=MultiModalFieldConfig.batched("video"),
-                # position_ids_video=MultiModalFieldConfig.batched("video"),
             )
 
 
@@ -791,7 +731,6 @@ class Ernie4_5_VLDummyInputsBuilder(BaseDummyInputsBuilder[Ernie4_5_VLProcessing
     def get_dummy_text(self, mm_counts: Mapping[str, int]) -> str:
         num_images = mm_counts.get("image", 0)
         num_videos = mm_counts.get("video", 0)
-        hf_processor = self.info.get_hf_processor()
         # image_placeholder: str = hf_processor.image_placeholder
         # prompt = "<|begin_of_sentence|>User: 描述文件内容是什么"
         prompt = ""
@@ -879,15 +818,19 @@ class Ernie4_5_VLMoeForConditionalGeneration(nn.Module, SupportsMultiModal, Supp
         self.multimodal_config = multimodal_config
 
 
-        # TODO 根据vllm的，这里确实一些参数如 quant_config
-        self.vision_model = Ernie4_5_VisionTransformer(vllm_config, prefix=f"vision_model")
+        self.vision_model = Ernie4_5_VisionTransformer(
+            config.vision_config,
+            norm_eps=getattr(config, "rms_norm_eps", 1e-6),
+            quant_config=quant_config,
+            prefix=maybe_prefix(prefix, "vision_model"),
+        )
+
 
         self.language_model = init_vllm_registered_model(
             vllm_config=vllm_config,
             prefix=maybe_prefix(prefix, "language_model"),
             architectures=["Ernie4_5_VLForCausalLM"],
         )
-
 
         self.resampler_model = VariableResolutionResamplerModel(
             self.config.pixel_hidden_size,
@@ -993,20 +936,6 @@ class Ernie4_5_VLMoeForConditionalGeneration(nn.Module, SupportsMultiModal, Supp
         image_features = self.vision_model(pixel_values, grid_thw)
         return image_features
 
-    def _merge_multimodal_embeddings(
-            self,
-            input_ids,
-            inputs_embeds,
-            image_features,
-    ):
-        """_merge_multimodal_embeddings"""
-        image_mask = input_ids == self.config.im_patch_id
-
-        inputs_embeds[image_mask] = image_features
-
-        return inputs_embeds
-
-
 
 
     def _set_visual_token_mask(self, input_ids: torch.Tensor) -> None:
@@ -1014,11 +943,7 @@ class Ernie4_5_VLMoeForConditionalGeneration(nn.Module, SupportsMultiModal, Supp
             self.visual_token_mask = (input_ids == self.config.im_patch_id).reshape(-1, 1)
         else:
             self.visual_token_mask = None
-        # logger.info(f"  _set_visual_token_mask 成功 self.visual_token_mask.shape: {self.visual_token_mask.shape}")
 
-    def _set_position_ids(self, position_ids: torch.Tensor) -> None:
-        self.position_ids = position_ids
-        logger.info(f"  _set_position_ids 成功 self.self.position_ids.shape: {self.position_ids.shape}")
 
     def get_language_model(self) -> torch.nn.Module:
         """
@@ -1070,18 +995,6 @@ class Ernie4_5_VLMoeForConditionalGeneration(nn.Module, SupportsMultiModal, Supp
                                            pixel_values=pixel_values,
                                            image_grid_thw=image_grid_thw)
 
-        # if image_embeds is not None:
-        #     image_embeds = self._validate_and_reshape_mm_tensor(
-        #         image_embeds, "image embeds")
-        #     grid_thw = self._validate_and_reshape_mm_tensor(
-        #         grid_thw, "image grid_thw")
-
-        #     if not isinstance(image_embeds, torch.Tensor):
-        #         raise ValueError("Incorrect type of image embeddings. "
-        #                          f"Got type: {type(image_embeds)}")
-        #     return Ernie4_5_VLImageEmbeddingInputs(type="image_embeds",
-        #                                        image_embeds=image_embeds,
-        #                                        grid_thw=grid_thw)
 
     def _parse_and_validate_video_input(
             self, **kwargs: object) -> Optional[Ernie4_5_VLVideoInputs]:
@@ -1104,18 +1017,6 @@ class Ernie4_5_VLMoeForConditionalGeneration(nn.Module, SupportsMultiModal, Supp
                 video_grid_thw=video_grid_thw,
             )
 
-        # if video_embeds is not None:
-        #     video_embeds = self._validate_and_reshape_mm_tensor(
-        #         video_embeds, "video embeds")
-        #     video_grid_thw = self._validate_and_reshape_mm_tensor(
-        #         video_grid_thw, "video grid_thw")
-
-        #     if not isinstance(video_embeds, torch.Tensor):
-        #         raise ValueError("Incorrect type of video embeddings. "
-        #                          f"Got type: {type(video_embeds)}")
-        #     return Ernie4_5_VLVideoEmbeddingInputs(type="video_embeds",
-        #                                        video_embeds=video_embeds,
-        #                                        video_grid_thw=video_grid_thw)
 
     def _process_image_input(
             self, image_input: Ernie4_5_VLImageInputs) -> tuple[torch.Tensor, ...]:
@@ -1233,13 +1134,9 @@ class Ernie4_5_VLMoeForConditionalGeneration(nn.Module, SupportsMultiModal, Supp
             "inputs_embeds": inputs_embeds,
         }
 
-        # logger.info(f"  self.language_model.model的输入 forward_kwargs: {forward_kwargs} ")
-        # logger.info(f"  self.language_model.model的输入 inputs_embeds.shape: {inputs_embeds.shape} positions.shape: {positions.shape} ")
         # Only required if the model is mono-architecture
         if self.visual_token_mask is not None:
-            # TODO 这样用会有并发问题吗，internvl是这样用的
-            # logger.info(f"  使用self.visual_token_mask，使用后置为None self.visual_token_mask.shape: {self.visual_token_mask.shape}")
-            
+
             if self.visual_token_mask.shape[0] != inputs_embeds.shape[0]:
                 logger.warning(f"  self.visual_token_mask.shape[0] != inputs_embeds.shape[0] {self.visual_token_mask.shape}, {inputs_embeds.shape}")
                 padding_len = inputs_embeds.shape[0] - self.visual_token_mask.shape[0]

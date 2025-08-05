@@ -243,8 +243,8 @@ class Ernie4_5_VLMoE(nn.Module):
         layer_idx = extract_layer_index(prefix)
         self.layer_idx = layer_idx
         self.tp_size = get_tensor_model_parallel_world_size()
-        self.moe_num_shared_experts = getattr(config, "moe_num_shared_experts",
-                                              None)
+        self.has_shared_experts = (getattr(config, "moe_num_shared_experts", 0)
+                                   > 0)
         self.hidden_size = config.hidden_size
 
         moe_num_experts = getattr(config, "moe_num_experts", 0)
@@ -346,7 +346,7 @@ class Ernie4_5_VLMoE(nn.Module):
         #                         quant_config=quant_config,
         #                         prefix=f"{prefix}.experts")
 
-        if self.moe_num_shared_experts is not None:
+        if self.has_shared_experts:
             intermediate_size = (config.moe_intermediate_size[0] *
                                  config.moe_num_shared_experts)
             self.shared_experts = Ernie4_5_VLMLP(
@@ -370,7 +370,7 @@ class Ernie4_5_VLMoE(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_dim)
         
 
-        if self.moe_num_shared_experts is not None:
+        if self.has_shared_experts:
             shared_output = self.shared_experts(hidden_states)
 
         
@@ -398,7 +398,7 @@ class Ernie4_5_VLMoE(nn.Module):
             final_hidden_states = self.text_experts(hidden_states=hidden_states,
                                            router_logits=text_router_logits)
 
-        if self.moe_num_shared_experts is not None and \
+        if self.has_shared_experts and \
               shared_output is not None:
             final_hidden_states = final_hidden_states + shared_output
 

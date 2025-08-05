@@ -118,6 +118,7 @@ _TEXT_GENERATION_MODELS = {
     "Zamba2ForCausalLM": ("zamba2", "Zamba2ForCausalLM"),
     "Ernie4_5_ForCausalLM": ("ernie45", "Ernie4_5_ForCausalLM"),
     "Ernie4_5_MoeForCausalLM": ("ernie45_moe", "Ernie4_5_MoeForCausalLM"),
+    "Ernie4_5_VLForCausalLM": ("ernie45_vl_moe", "Ernie4_5_VLForCausalLM"),
     # [Encoder-decoder]
     "BartModel": ("bart", "BartForConditionalGeneration"),
     "BartForConditionalGeneration": ("bart", "BartForConditionalGeneration"),
@@ -213,6 +214,7 @@ _MULTIMODAL_MODELS = {
     "Qwen2_5OmniForConditionalGeneration": ("qwen2_5_omni_thinker", "Qwen2_5OmniThinkerForConditionalGeneration"),  # noqa: E501
     "UltravoxModel": ("ultravox", "UltravoxModel"),
     "Phi4MMForCausalLM": ("phi4mm", "Phi4MMForCausalLM"),
+    # "Ernie4_5_VLMoeForConditionalGeneration": ("ernie45_vl_moe", "Ernie4_5_VLMoeForConditionalGeneration"),
     # [Encoder-decoder]
     "Florence2ForConditionalGeneration": ("florence2", "Florence2ForConditionalGeneration"),  # noqa: E501
     "MllamaForConditionalGeneration": ("mllama", "MllamaForConditionalGeneration"),  # noqa: E501
